@@ -1,17 +1,67 @@
+"""
+Ref: https://towardsdatascience.com/how-to-tune-hyperparameters-of-machine-learning-models-a82589d48fc8
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn.metrics import accuracy_score
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
+import plotly.graph_objects as go
 
 from warnings import filterwarnings
 filterwarnings('ignore')
+
+
+def plot_grid_search(cv_results, name_param_1, name_param_2):
+    df_params = pd.DataFrame(cv_results["params"])
+    df_scores = pd.DataFrame(cv_results["mean_test_score"], columns=["Accuracy"])
+    grid_results = pd.concat([df_params, df_scores], axis=1)
+
+    grid_param_1 = df_params.columns[0]
+    grid_param_2 = df_params.columns[1]
+
+    # reshape data by pivoting them into an m ⨯ n matrix
+    # where rows and columns correspond to the the first and second hyperparameter respectively
+    grid_contour = grid_results.groupby([grid_param_1, grid_param_2]).mean()
+    grid_reset = grid_contour.reset_index()
+    grid_reset.columns = [grid_param_1, grid_param_2, 'Accuracy']
+    grid_pivot = grid_reset.pivot(grid_param_1, grid_param_2)
+
+    x = grid_pivot.columns.levels[1].values
+    y = grid_pivot.index.values
+    z = grid_pivot.values
+
+    # X and Y axes labels
+    layout = go.Layout(
+        xaxis=go.layout.XAxis(
+            title=go.layout.xaxis.Title(
+                text=name_param_2)
+        ),
+        yaxis=go.layout.YAxis(
+            title=go.layout.yaxis.Title(
+                text=name_param_1)
+        ))
+
+    # Making the 3D Contour Plot
+    fig = go.Figure(data=[go.Surface(z=z, y=y, x=x)], layout=layout)
+
+    fig.update_layout(title='Hyperparameter tuning',
+                      scene=dict(
+                          xaxis_title=name_param_2,
+                          yaxis_title=name_param_1,
+                          zaxis_title='Accuracy'),
+                      autosize=False,
+                      width=800, height=800,
+                      margin=dict(l=65, r=50, b=65, t=90))
+
+    fig.show()
 
 
 if __name__ == '__main__':
@@ -65,23 +115,20 @@ if __name__ == '__main__':
     skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 
     # create model
-    model = MLPClassifier(hidden_layer_sizes=(5, 5, 5,), activation='relu')
-    scores = []
+    model = SVC(kernel="rbf")
 
-    for train_index, val_index in skf.split(X_train, y_train):
-        # print("TRAIN:", train_index, "TEST:", val_index)
-        X_tr, X_val = X_train[train_index], X_train[val_index]
-        y_tr, y_val = y_train[train_index], y_train[val_index]
+    tolerance = [0.1, 0.01, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7]
+    C = [0.5, 1, 1.5, 2, 2.5, 3, 3.5]
+    grid = dict(tol=tolerance, C=C)
 
-        model.fit(X_tr, y_tr)
-        y_pred = model.predict(X_val)
-        score = accuracy_score(y_val, y_pred)
-        scores.append(score)
+    gridSearch = GridSearchCV(estimator=model, param_grid=grid, n_jobs=-1,
+                              cv=skf, scoring="accuracy", return_train_score=True)
 
-    # report performance
-    print('Accuracy: %.3f (%.3f)' % (np.mean(scores), np.std(scores)))
+    searchResults = gridSearch.fit(X_train, y_train)
+    # extract the best model and evaluate it
+    print("[INFO] evaluating...")
+    bestModel = searchResults.best_estimator_
+    print("Best parameters:", searchResults.best_params_)
+    print("Test accuracy: {:.3f}".format(bestModel.score(X_test, y_test)))
 
-    y_pred = model.predict(X_test)
-    print(accuracy_score(y_test, y_pred))
-
-    print(np.isnan(np.sum(X_test)))
+    plot_grid_search(cv_results=searchResults.cv_results_, name_param_1='C', name_param_2='tolerance')
