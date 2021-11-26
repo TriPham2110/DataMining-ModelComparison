@@ -14,14 +14,16 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 import plotly.graph_objects as go
+from sklearn.preprocessing import StandardScaler
+import time
 
 from warnings import filterwarnings
 filterwarnings('ignore')
 
 
-def plot_grid_search(cv_results, name_param_1, name_param_2):
+def plot_grid_search(cv_results, name_param_1, name_param_2, model_name):
     df_params = pd.DataFrame(cv_results["params"])
-    df_scores = pd.DataFrame(cv_results["mean_test_score"], columns=["Accuracy"])
+    df_scores = pd.DataFrame(np.round(cv_results["mean_test_score"], decimals=3), columns=["Accuracy"])
     grid_results = pd.concat([df_params, df_scores], axis=1)
 
     grid_param_1 = df_params.columns[0]
@@ -50,18 +52,40 @@ def plot_grid_search(cv_results, name_param_1, name_param_2):
         ))
 
     # Making the 3D Contour Plot
-    fig = go.Figure(data=[go.Surface(z=z, y=y, x=x)], layout=layout)
+    fig = go.Figure(data=[go.Surface(z=z, y=y, x=x)],
+                    layout=layout)
 
-    fig.update_layout(title='Hyperparameter tuning',
+    fig.update_layout(title='Hyperparameter tuning for ' + model_name,
                       scene=dict(
                           xaxis_title=name_param_2,
                           yaxis_title=name_param_1,
-                          zaxis_title='Accuracy'),
+                          zaxis_title='Mean Accuracy'),
                       autosize=False,
                       width=800, height=800,
                       margin=dict(l=65, r=50, b=65, t=90))
 
     fig.show()
+
+
+def grid_search(model, grid, model_name):
+    # prepare the cross-validation procedure
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+
+    gridSearch = GridSearchCV(estimator=model, param_grid=grid, n_jobs=-1,
+                              cv=skf, scoring="accuracy", return_train_score=True, verbose=1)
+    searchResults = gridSearch.fit(X_train, y_train)
+
+    # extract the best model and evaluate it
+    print("[INFO] evaluating...")
+    bestModel = searchResults.best_estimator_
+    print("Best parameters:", searchResults.best_params_)
+
+    plot_grid_search(cv_results=searchResults.cv_results_,
+                     name_param_1=list(grid.keys())[1],
+                     name_param_2=list(grid.keys())[0],
+                     model_name=model_name)
+
+    return bestModel
 
 
 if __name__ == '__main__':
@@ -107,28 +131,85 @@ if __name__ == '__main__':
     X_train = X_train.round(0)
     X_test = X_test.round(0)
 
+    # standardize features by removing the mean and scaling to unit variance
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.fit_transform(X_test)
+
     # convert type to ndarray
     y_train = y_train.values
     y_test = y_test.values
 
-    # prepare the cross-validation procedure
-    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+    # performing grid search cross validation for k-nearest neighbors
+    print("Performing grid search cross validation for k-nearest neighbors")
+    start_knn = time.time()
+    knn = KNeighborsClassifier(n_jobs=-1)
+    n_neighbors = np.arange(1, 6, 1)
+    p = np.arange(1, 6, 1)
+    best_tuned_knn = grid_search(knn, dict(n_neighbors=n_neighbors, p=p), model_name="k-nearest neighbors")
+    end_knn = time.time()
 
-    # create model
-    model = SVC(kernel="rbf")
+    # performing grid search cross validation for decision trees
+    print("Performing grid search cross validation for decision trees")
+    start_dt = time.time()
+    dt = DecisionTreeClassifier()
+    max_depth = np.arange(1, 6, 1)
+    min_samples_leaf = np.arange(1, 6, 1)
+    best_tuned_dt = grid_search(dt, dict(max_depth=max_depth, min_samples_leaf=min_samples_leaf), model_name="decision trees")
+    end_dt = time.time()
 
-    tolerance = [0.1, 0.01, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7]
-    C = [0.5, 1, 1.5, 2, 2.5, 3, 3.5]
-    grid = dict(tol=tolerance, C=C)
+    # performing grid search cross validation for SVM using the polynomial kernel
+    print("Performing grid search cross validation for SVM using the polynomial kernel")
+    start_poly_svm = time.time()
+    poly_svm = SVC(kernel="poly")
+    degree = np.arange(1, 6, 1)
+    C = np.arange(1, 6, 1)
+    best_tuned_poly_svm = grid_search(poly_svm, dict(degree=degree, C=C), model_name="SVM using the polynomial kernel")
+    end_poly_svm = time.time()
 
-    gridSearch = GridSearchCV(estimator=model, param_grid=grid, n_jobs=-1,
-                              cv=skf, scoring="accuracy", return_train_score=True)
+    # performing grid search cross validation for SVM using the RBF kernel
+    print("Performing grid search cross validation for SVM using the RBF kernel")
+    start_rbf_svm = time.time()
+    rbf_svm = SVC(kernel="rbf")
+    gamma = np.arange(1, 11, 1)
+    C = np.arange(1, 11, 1)
+    best_tuned_rbf_svm = grid_search(rbf_svm, dict(gamma=gamma, C=C), model_name="SVM using the RBF kernel")
+    end_rbf_svm = time.time()
 
-    searchResults = gridSearch.fit(X_train, y_train)
-    # extract the best model and evaluate it
-    print("[INFO] evaluating...")
-    bestModel = searchResults.best_estimator_
-    print("Best parameters:", searchResults.best_params_)
-    print("Test accuracy: {:.3f}".format(bestModel.score(X_test, y_test)))
+    # performing grid search cross validation for Deep neural network with sigmoid activation
+    print("Performing grid search cross validation for deep neural network with sigmoid activation")
+    start_sigmoid_nn = time.time()
+    sigmoid_nn = MLPClassifier(activation='logistic')
+    hidden_layer_sizes = [(5, 5, 5)]
+    learning_rate_init = np.arange(1e-3, 6, 1)
+    best_tuned_sigmoid_nn = grid_search(sigmoid_nn, dict(hidden_layer_sizes=hidden_layer_sizes,
+                                                         learning_rate_init=learning_rate_init),
+                                        model_name="deep neural network with sigmoid activation")
+    end_sigmoid_nn = time.time()
 
-    plot_grid_search(cv_results=searchResults.cv_results_, name_param_1='C', name_param_2='tolerance')
+    # performing grid search cross validation for Deep neural network with relu activation
+    print("Performing grid search cross validation for deep neural network with relu activation")
+    start_relu_nn = time.time()
+    relu_nn = MLPClassifier(activation='relu')
+    hidden_layer_sizes = [(5, 5, 5)]
+    learning_rate_init = np.arange(1e-3, 6, 1)
+    best_tuned_relu_nn = grid_search(relu_nn, dict(hidden_layer_sizes=hidden_layer_sizes,
+                                                   learning_rate_init=learning_rate_init),
+                                     model_name="deep neural network with relu activation")
+    end_relu_nn = time.time()
+
+    print("Time taken to tune each model's hyperparameters")
+    print("K-nearest neighbors:", end_knn - start_knn)
+    print("Decision trees:", end_dt - start_dt)
+    print("SVM using the polynomial kernel:", end_poly_svm - start_poly_svm)
+    print("SVM using the RBF kernel:", end_rbf_svm - start_rbf_svm)
+    print("Deep neural network with sigmoid activation:", end_sigmoid_nn - start_sigmoid_nn)
+    print("Deep neural network with relu activation:", end_relu_nn - start_relu_nn)
+
+    print("\nTest accuracy")
+    print("K-nearest neighbors: {:.3f}".format(best_tuned_knn.score(X_test, y_test)))
+    print("Decision trees: {:.3f}".format(best_tuned_dt.score(X_test, y_test)))
+    print("SVM using the polynomial kernel: {:.3f}".format(best_tuned_poly_svm.score(X_test, y_test)))
+    print("SVM using the RBF kernel: {:.3f}".format(best_tuned_rbf_svm.score(X_test, y_test)))
+    print("Deep neural network with sigmoid activation: {:.3f}".format(best_tuned_sigmoid_nn.score(X_test, y_test)))
+    print("Deep neural network with relu activation: {:.3f}".format(best_tuned_relu_nn.score(X_test, y_test)))
