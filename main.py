@@ -9,6 +9,7 @@ from warnings import filterwarnings
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
