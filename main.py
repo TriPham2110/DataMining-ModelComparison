@@ -9,6 +9,7 @@ from warnings import filterwarnings
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
@@ -136,8 +137,9 @@ if __name__ == '__main__':
 
     # standardize features by removing the mean and scaling to unit variance
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.fit_transform(X_test)
+    scaler.fit(X_train)
+    X_train = scaler.transform(X_train)
+    X_test = scaler.transform(X_test)
 
     # convert type to ndarray
     y_train = y_train.values
@@ -147,29 +149,40 @@ if __name__ == '__main__':
     print("Performing grid search cross validation for k-nearest neighbors")
     start_knn = time.time()
     knn = KNeighborsClassifier(n_jobs=-1)
-    n_neighbors = np.arange(1, 26, 1)
-    p = np.arange(1, 6, 1)
+    n_neighbors = np.arange(1, 51, 1)
+    p = np.arange(1, 26, 1)
     best_tuned_knn = grid_search(model=knn,
                                  grid=dict(n_neighbors=n_neighbors, p=p),
                                  model_name="k-nearest neighbors")
     end_knn = time.time()
 
-    # performing grid search cross validation for decision trees
-    print("Performing grid search cross validation for decision trees")
+    # performing grid search cross validation for decision tree
+    print("Performing grid search cross validation for decision tree")
     start_dt = time.time()
     dt = DecisionTreeClassifier()
     max_depth = np.arange(1, 101, 1)
     min_samples_leaf = np.arange(1, 101, 1)
     best_tuned_dt = grid_search(model=dt,
                                 grid=dict(max_depth=max_depth, min_samples_leaf=min_samples_leaf),
-                                model_name="decision trees")
+                                model_name="decision tree")
     end_dt = time.time()
+
+    # performing grid search cross validation for random forest
+    print("Performing grid search cross validation for random forest")
+    start_rf = time.time()
+    rf = RandomForestClassifier(n_jobs=-1)
+    max_depth = np.arange(1, 101, 1)
+    n_estimators = np.arange(100, 1001, 10)
+    best_tuned_rf = grid_search(model=rf,
+                                grid=dict(max_depth=max_depth, n_estimators=n_estimators),
+                                model_name="decision tree")
+    end_rf = time.time()
 
     # performing grid search cross validation for SVM using the polynomial kernel
     print("Performing grid search cross validation for SVM using the polynomial kernel")
     start_poly_svm = time.time()
     poly_svm = SVC(kernel="poly")
-    degree = np.arange(1, 11, 1)
+    degree = np.arange(2, 11, 1)
     C = np.arange(0.1, 10.1, 0.1)
     best_tuned_poly_svm = grid_search(model=poly_svm,
                                       grid=dict(degree=degree, C=C),
@@ -180,7 +193,7 @@ if __name__ == '__main__':
     print("Performing grid search cross validation for SVM using the RBF kernel")
     start_rbf_svm = time.time()
     rbf_svm = SVC(kernel="rbf")
-    gamma = np.arange(1e-5, 11, 0.1)
+    gamma = np.arange(1e-5, 10.1, 0.1)
     C = np.arange(0.1, 10.1, 0.1)
     best_tuned_rbf_svm = grid_search(model=rbf_svm,
                                      grid=dict(gamma=gamma, C=C),
@@ -211,7 +224,8 @@ if __name__ == '__main__':
 
     print("Time taken to tune each model's hyperparameters")
     print("K-nearest neighbors:", end_knn - start_knn)
-    print("Decision trees:", end_dt - start_dt)
+    print("Decision tree:", end_dt - start_dt)
+    print("Random forest:", end_rf - start_rf)
     print("SVM using the polynomial kernel:", end_poly_svm - start_poly_svm)
     print("SVM using the RBF kernel:", end_rbf_svm - start_rbf_svm)
     print("Deep neural network with sigmoid activation:", end_sigmoid_nn - start_sigmoid_nn)
@@ -219,7 +233,8 @@ if __name__ == '__main__':
 
     print("\nTest accuracy")
     print("K-nearest neighbors: {:.3f}".format(best_tuned_knn.score(X_test, y_test)))
-    print("Decision trees: {:.3f}".format(best_tuned_dt.score(X_test, y_test)))
+    print("Decision tree: {:.3f}".format(best_tuned_dt.score(X_test, y_test)))
+    print("Random forest: {:.3f}".format(best_tuned_rf.score(X_test, y_test)))
     print("SVM using the polynomial kernel: {:.3f}".format(best_tuned_poly_svm.score(X_test, y_test)))
     print("SVM using the RBF kernel: {:.3f}".format(best_tuned_rbf_svm.score(X_test, y_test)))
     print("Deep neural network with sigmoid activation: {:.3f}".format(best_tuned_sigmoid_nn.score(X_test, y_test)))
